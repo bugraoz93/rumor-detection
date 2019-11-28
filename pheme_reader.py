@@ -1,11 +1,15 @@
 import os
 import json
+import elasticsearch
+from elasticsearch import Elasticsearch
 
-dataset_directory = "/home/cluster/PycharmProjects/rumor-detection/data"
+dataset_directory = "/home/cluster/PycharmProjects/data"
 DS_STORE = '.DS_Store'
 directories = os.listdir(dataset_directory)
 directories.remove('README')
-directories.remove(DS_STORE)
+
+es = Elasticsearch(hosts="localhost:9200")
+# directories.remove(DS_STORE)
 
 
 def read_data_to_dir():
@@ -33,6 +37,7 @@ def read_data_to_dir():
             with open(source_tweet_path) as d:
                 source_tweet = json.load(d)
             print("source: " + str(source_tweet))
+            # print(source_tweet.keys())
             source_reaction_data = {'source_tweet': source_tweet, 'reactions': []}
             reactions = os.listdir(os.path.join(os.curdir, rumor_dir, rumor_tweet_dir, 'reactions'))
             for reaction in reactions:
@@ -51,6 +56,7 @@ def read_data_to_dir():
             with open(source_tweet_path) as d:
                 source_tweet = json.load(d)
             print("source: " + str(source_tweet))
+            # print(source_tweet.keys())
             source_reaction_data = {'source_tweet': source_tweet, 'reactions': []}
             reactions = os.listdir(os.path.join(os.curdir, non_rumor_dir, non_rumor_tweet_dir, 'reactions'))
             for reaction in reactions:
@@ -63,4 +69,64 @@ def read_data_to_dir():
     return data
 
 
-pheme_data = read_data_to_dir()
+def save_to_txt():
+    pheme_data = read_data_to_dir()
+    with open("/home/cluster/PycharmProjects/rumor-detection/tweets.txt", "w") as file:
+        name_list = list()
+        name_list.append("charliehebdo")
+        name_list.append("ferguson")
+        name_list.append("germanwings-crash")
+        name_list.append("ottawashooting")
+        name_list.append("sydneysiege")
+
+        charliehebdo = pheme_data["charliehebdo"]
+        ferguson = pheme_data["ferguson"]
+        germanwings_crash = pheme_data["germanwings-crash"]
+        ottawasshooting = pheme_data["ottawashooting"]
+        sydneysiege = pheme_data["sydneysiege"]
+
+        event_list = list()
+        event_list.append(charliehebdo)
+        event_list.append(ferguson)
+        event_list.append(germanwings_crash)
+        event_list.append(ottawasshooting)
+        event_list.append(sydneysiege)
+
+        for event in event_list:
+            rumors = event["rumor_tweets"]
+            non_rumors = event["non_rumor_tweets"]
+            current_name = name_list.pop()
+            for tweets in rumors:
+                source_tweet = tweets["source_tweet"]
+                source_tweet["event_name"] = current_name
+                source_tweet["rumor"] = 1
+                reactions = tweets["reactions"]
+                document = json.dumps(source_tweet)
+                res = es.index(index="twitter", doc_type='doc', id=document["id_str"], body=document)
+                print(res['result'])
+                for tweet in reactions:
+                    tweet["event_name"] = current_name
+                    tweet["source_tweet_id"] = source_tweet["id_str"]
+                    tweet["rumor"] = 1
+                    document = json.dumps(tweet)
+                    res = es.index(index="twitter", doc_type='doc', id=document["id_str"], body=document)
+                    print(res['result'])
+
+            for tweets in non_rumors:
+                source_tweet = tweets["source_tweet"]
+                source_tweet["event_name"] = current_name
+                source_tweet["rumor"] = 1
+
+                reactions = tweets["reactions"]
+                document = json.dumps(source_tweet)
+                res = es.index(index="twitter", doc_type='doc', id=document["id_str"], body=document)
+                print(res['result'])
+                for tweet in reactions:
+                    tweet["event_name"] = current_name
+                    tweet["source_tweet_id"] = source_tweet["id_str"]
+                    tweet["rumor"] = 1
+                    document = json.dumps(tweet)
+                    res = es.index(index="twitter", doc_type='doc', id=document["id_str"], body=document)
+                    print(res['result'])
+
+save_to_txt()
