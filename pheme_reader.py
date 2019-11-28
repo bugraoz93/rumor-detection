@@ -1,7 +1,7 @@
 import os
 import json
 
-dataset_directory = "/Users/egeyosunkaya/PROJECT_DATA/PHEME/pheme-rnr"
+dataset_directory = "/home/cluster/PycharmProjects/rumor-detection/data"
 DS_STORE = '.DS_Store'
 directories = os.listdir(dataset_directory)
 directories.remove('README')
