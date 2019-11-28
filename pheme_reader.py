@@ -102,14 +102,14 @@ def save_to_txt():
                 source_tweet["rumor"] = 1
                 reactions = tweets["reactions"]
                 document = json.dumps(source_tweet)
-                res = es.index(index="twitter", doc_type='doc', id=document["id_str"], body=document)
+                res = es.index(index="twitter", doc_type='doc', id=source_tweet["id_str"], body=document)
                 print(res['result'])
                 for tweet in reactions:
                     tweet["event_name"] = current_name
                     tweet["source_tweet_id"] = source_tweet["id_str"]
                     tweet["rumor"] = 1
                     document = json.dumps(tweet)
-                    res = es.index(index="twitter", doc_type='doc', id=document["id_str"], body=document)
+                    res = es.index(index="twitter", doc_type='doc', id=tweet["id_str"], body=document)
                     print(res['result'])
 
             for tweets in non_rumors:
@@ -119,14 +119,14 @@ def save_to_txt():
 
                 reactions = tweets["reactions"]
                 document = json.dumps(source_tweet)
-                res = es.index(index="twitter", doc_type='doc', id=document["id_str"], body=document)
+                res = es.index(index="twitter", doc_type='doc', id=source_tweet["id_str"], body=document)
                 print(res['result'])
                 for tweet in reactions:
                     tweet["event_name"] = current_name
                     tweet["source_tweet_id"] = source_tweet["id_str"]
                     tweet["rumor"] = 1
                     document = json.dumps(tweet)
-                    res = es.index(index="twitter", doc_type='doc', id=document["id_str"], body=document)
+                    res = es.index(index="twitter", doc_type='doc', id=tweet["id_str"], body=document)
                     print(res['result'])
 
 save_to_txt()
