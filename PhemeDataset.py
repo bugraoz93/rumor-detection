@@ -3,14 +3,14 @@ from elasticsearch import Elasticsearch
 
 class PhemeDatasetES:
 
-    def __init__(self):
-        self.es = Elasticsearch(hosts="0.0.0.0:9200")
-        self.index_name = 'pheme_tweet_data'
+    def __init__(self, hosts, index_name):
+        self.es = Elasticsearch(hosts=[hosts])
+        self.index_name = index_name
 
-    def get_data_with_event_name(self, event_name):
+    def get_data(self, query):
         size = 1000
         data = []
-        result = self.es.search(index=self.index_name, scroll='1m', body={'size': size, 'query': {'match': {'event_name': event_name}}})
+        result = self.es.search(index=self.index_name, scroll='1m', body={'size': size, 'query': query})
         total_count = int(result['hits']['total'])
         data.extend(map(lambda d: d['_source'], result['hits']['hits']))
         scroll_id = result['_scroll_id']
@@ -21,6 +21,9 @@ class PhemeDatasetES:
             scroll_id = result['_scroll_id']
 
         return data
+
+    def get_data_event_name(self, event_name):
+        return self.get_data({'match': {'event_name': event_name}})
 
     @staticmethod
     def _print_progress(iteration, total, prefix='', suffix='', decimals=1, length=100, fill='█', printEnd="\r"):
