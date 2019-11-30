@@ -2,8 +2,9 @@
 from PhemeDataset import PhemeDatasetES
 
 
-dataset = PhemeDatasetES()
+dataset = PhemeDatasetES("localhost:9200", "twitter")
 
 
-charlie_data = dataset.get_data_with_event_name('charliehebdo')
+charlie_data = dataset.get_event_time_frames_with_time('charliehebdo', 50)
+
 

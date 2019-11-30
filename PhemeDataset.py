@@ -1,3 +1,5 @@
+import datetime
+
 from elasticsearch import Elasticsearch
 
 
@@ -7,10 +9,13 @@ class PhemeDatasetES:
         self.es = Elasticsearch(hosts=[hosts])
         self.index_name = index_name
 
-    def get_data(self, query):
+    def get_data(self, query, sort):
         size = 1000
         data = []
-        result = self.es.search(index=self.index_name, scroll='1m', body={'size': size, 'query': query})
+        if sort:
+            result = self.es.search(index=self.index_name, scroll='1m', body={'size': size, 'query': query}, sort=sort)
+        else:
+            result = self.es.search(index=self.index_name, scroll='1m', body={'size': size, 'query': query})
         total_count = int(result['hits']['total'])
         data.extend(map(lambda d: d['_source'], result['hits']['hits']))
         scroll_id = result['_scroll_id']
@@ -23,7 +28,62 @@ class PhemeDatasetES:
         return data
 
     def get_data_event_name(self, event_name):
-        return self.get_data({'match': {'event_name': event_name}})
+        return self.get_data({'match': {'event_name': event_name}}, None)
+
+    def get_event_time_frames(self, event_name, frame_count):
+        result = self.get_data({'match': {'event_name': event_name}}, 'created_at:asc')
+        first = self.get_timestamp(result[0])
+        last = self.get_timestamp(result[-1])
+        frame_size = int((last - first) / frame_count)
+        counter = 1
+        time_frames = []
+        current_frame = []
+        length = 0
+        for data in result:
+            if self.get_timestamp(data) < (first + (counter * frame_size)):
+                current_frame.append(data)
+                length += 1
+            else:
+                print(str(counter) + " Frame Size: " + str(len(current_frame)))
+                time_frames.append(current_frame)
+                current_frame = []
+                counter += 1
+        print("Length: " + str(length))
+        print("Result length: " + str(len(result)))
+        return time_frames
+
+    def get_event_time_frames_with_time(self, event_name, frame_size):
+        result = self.get_data({'match': {'event_name': event_name}}, 'created_at:asc')
+        first = self.get_timestamp(result[0])
+        last = self.get_timestamp(result[-1])
+        counter = 1
+        time_frames = []
+        current_frame = []
+        length = 0
+        for data in result:
+            if self.get_timestamp(data) < (first + (counter * frame_size)):
+                current_frame.append(data)
+                length += 1
+            else:
+                print(str(counter) + " Frame Size: " + str(len(current_frame)))
+                time_frames.append(current_frame)
+                counter += 1
+                while self.get_timestamp(data) >= (first + (counter * frame_size)):
+                    current_frame = []
+                    time_frames.append(current_frame.copy())
+                    counter += 1
+                    print(str(counter) + " Frame Size: " + str(len(current_frame)))
+                current_frame.append(data)
+                length += 1
+
+        time_frames.append(current_frame.copy())
+        print(str(counter) + " Frame Size: " + str(len(current_frame)))
+        print("Time Frame length: " + str(len(time_frames)))
+        return time_frames
+
+    @staticmethod
+    def get_timestamp(data):
+        return int(datetime.datetime.strptime(data["created_at"], '%a %b %d %H:%M:%S +0000 %Y').timestamp())
 
     @staticmethod
     def _print_progress(iteration, total, prefix='', suffix='', decimals=1, length=100, fill='█', printEnd="\r"):
