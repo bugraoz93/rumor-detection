@@ -82,6 +82,23 @@ class PhemeDatasetES:
         return time_frames
 
     @staticmethod
+    def get_speed_of_time_frame(time_frame):
+        first_time = PhemeDatasetES.get_timestamp(time_frame[0]["created_at"])
+        last_time = PhemeDatasetES.get_timestamp(time_frame[-1]["created_at"])
+        total_time = last_time - first_time
+
+        return len(time_frame) / int(total_time)
+
+    @staticmethod
+    def get_speed_of_time_frame_replies(time_frame):
+        for item in time_frame:
+            if "source_tweet_id" not in item:
+                time_frame.remove(item)
+
+        return PhemeDatasetES.get_event_time_frames(time_frame)
+
+
+    @staticmethod
     def get_timestamp(data):
         return int(datetime.datetime.strptime(data["created_at"], '%a %b %d %H:%M:%S +0000 %Y').timestamp())
 
