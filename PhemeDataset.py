@@ -138,4 +138,64 @@ class PhemeDatasetES:
         if iteration == total:
             print()
 
+    @staticmethod
+    def __get_total_time_of_time_frame(time_frame):
+        start = PhemeDatasetES.get_timestamp(time_frame[0])
+        end = PhemeDatasetES.get_timestamp(time_frame[-1])
+        return end - start
 
+    @staticmethod
+    def __get_unique_user_count(time_frame):
+        users = set()
+        for post in time_frame:
+            users.add(post['user']['id_str'])
+
+        return len(users)
+
+    @staticmethod
+    def __get_average_user_per_second(time_frame):
+        user_count = PhemeDatasetES.__get_unique_user_count(time_frame)
+        total_time = PhemeDatasetES.__get_total_time_of_time_frame(time_frame)
+        return user_count / total_time
+
+    @staticmethod
+    def __get_average_default_user_per_second(time_frame):
+        total_time = PhemeDatasetES.__get_total_time_of_time_frame(time_frame)
+        filtered_frame = list(filter(lambda x: x['user']['default_profile'] is True, time_frame))
+        return len(filtered_frame) / total_time
+
+    def __get_total_reaction_time(self, source_tweet):
+        query = {"match": {"source_tweet_id": source_tweet['id_str']}}
+        response_data = self.get_data(query, "created_at:asc")
+        if len(response_data) > 0:
+            start = self.get_timestamp(response_data[0])
+            end = self.get_timestamp(response_data[-1])
+            return end - start
+        else:
+            return 0
+
+    def __get_total_reaction_count(self, source_tweet, max_time):
+        query = {"match": {"source_tweet_id": source_tweet['id_str']}}
+        response_data = self.get_data(query, "created_at:asc")
+        if max_time is None:
+            return len(response_data)
+        if len(response_data) == 0:
+            return 0
+        start = self.get_timestamp(response_data[0])
+        max_stamp = start + max_time
+        return len(list(filter(lambda x: self.get_timestamp(x) < max_stamp, response_data)))
+
+    def get_source_tweet_representations(self, event_name):
+        data = self.get_data_event_name(event_name)
+        features = []
+        for source_tweet in filter(lambda x: 'source_tweet_id' not in x, data):
+            features.append(
+                {'id': source_tweet['id_str'],
+                 'isRumor': source_tweet['rumor'] == 1,
+                 'time_span': self.__get_total_reaction_time(source_tweet),
+                 'early_reaction_count': self.__get_total_reaction_count(source_tweet, 15*60),
+                 'mid_reaction_count': self.__get_total_reaction_count(source_tweet, 60*60),
+                 'all_reaction_count': self.__get_total_reaction_count(source_tweet, None)
+                 }
+            )
+        return features
