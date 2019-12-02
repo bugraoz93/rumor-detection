@@ -99,7 +99,11 @@ class PhemeDatasetES:
 
     @staticmethod
     def get_retweet_count_of_source(time_frame):
-        time_frame_ave = int(sum([item["retweet_count"] for item in time_frame]) / len(time_frame))
+        ave_retweet_count_of_time_frame = sum([int(item["retweet_count"]) for item in time_frame])
+        if ave_retweet_count_of_time_frame != 0:
+            time_frame_ave = int(ave_retweet_count_of_time_frame) / len(time_frame)
+        else:
+            return None
         source_tweet_retweet_normalized = list()
         for item in time_frame:
             if "source_tweet_id" not in item:
