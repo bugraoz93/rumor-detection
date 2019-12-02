@@ -95,8 +95,18 @@ class PhemeDatasetES:
             if "source_tweet_id" not in item:
                 time_frame.remove(item)
 
-        return PhemeDatasetES.get_event_time_frames(time_frame)
+        return PhemeDatasetES.get_speed_of_time_frame(time_frame)
 
+    @staticmethod
+    def get_retweet_count_of_source(time_frame):
+        time_frame_ave = int(sum([item["retweet_count"] for item in time_frame]) / len(time_frame))
+        source_tweet_retweet_normalized = list()
+        for item in time_frame:
+            if "source_tweet_id" not in item:
+                item["retweet_count_normalized"] = item["retweet_count"] / time_frame_ave
+                source_tweet_retweet_normalized.append(item)
+
+        return source_tweet_retweet_normalized
 
     @staticmethod
     def get_timestamp(data):
