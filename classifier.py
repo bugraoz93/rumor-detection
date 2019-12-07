@@ -3,6 +3,8 @@ from sklearn.linear_model import LinearRegression
 from sklearn.svm import SVC
 from sklearn.metrics import classification_report
 from sklearn.model_selection import train_test_split
+from sklearn.tree import DecisionTreeClassifier
+
 from PhemeDataset import PhemeDatasetES
 
 dataset = PhemeDatasetES(hosts="localhost:9200", index_name="twitter")
@@ -40,7 +42,7 @@ for representation in representations:
          # representation['reaction_mention_count'],
          # representation['reaction_retweet_count'],
          # representation['user_event_time_diff']
-    ]
+         ]
     X.append(x.copy())
     y.append(representation['isRumor'])
 X_test = []
@@ -71,15 +73,16 @@ for representation in test_set:
          # representation['reaction_mention_count'],
          # representation['reaction_retweet_count'],
          # representation['user_event_time_diff']
-    ]
+         ]
     X_test.append(x.copy())
     y_test.append(representation['isRumor'])
 
-
-#X_train, X_test, y_train, y_test = train_test_split(X, y, random_state=0)
+# X_train, X_test, y_train, y_test = train_test_split(X, y, random_state=0)
 
 X_train = X
 y_train = y
+
+
 def classify_with_rfc(X, y):
     cls = RandomForestClassifier()
     X_train, X_test, y_train, y_test = train_test_split(X, y, random_state=0)
@@ -107,11 +110,29 @@ def classify_with_svm(X, y):
     return accuracy, svc
 
 
+def classify_with_dt(X, y):
+    svc = DecisionTreeClassifier(random_state=0)
+    X_train, X_test, y_train, y_test = train_test_split(X, y, random_state=0)
+    svc.fit(X_train, y_train)
+    accuracy = svc.score(X_test, y_test)
+    print("Accuracy: " + str(accuracy))
+    return accuracy, svc
+
+
 def evaluate_model(model, X_test, y_test):
     predicted_y = model.predict(X_test)
     report = classification_report(y_test, predicted_y)
     print(report)
 
 
+print("Random Forrest: ")
 _, model = classify_with_rfc(X_train, y_train)
+evaluate_model(model, X_test, y_test)
+
+print("SVM: ")
+_, model = classify_with_svm(X_train, y_train)
+evaluate_model(model, X_test, y_test)
+
+print("Decision Tree: ")
+_, model = classify_with_dt(X_train, y_train)
 evaluate_model(model, X_test, y_test)
