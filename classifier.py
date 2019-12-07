@@ -5,7 +5,7 @@ from sklearn.metrics import classification_report
 from sklearn.model_selection import train_test_split
 from PhemeDataset import PhemeDatasetES
 
-dataset = PhemeDatasetES(hosts="0.0.0.0:9200", index_name="pheme_tweet_data")
+dataset = PhemeDatasetES(hosts="localhost:9200", index_name="twitter")
 
 representations = dataset.get_source_tweet_representations("charliehebdo")
 representations.extend(dataset.get_source_tweet_representations("germanwings-crash"))
@@ -19,13 +19,27 @@ for representation in representations:
          representation['early_reaction_count'],
          representation['mid_reaction_count'],
          representation['all_reaction_count'],
-         representation['reaction_speed'],
-         representation['reaction_mention_count'],
-         representation['reaction_retweet_count'],
          representation['is_sensitive'],
+         # User
+         representation['is_geo_enabled'],
+         representation['has_description'],
+         representation['description_word_count'],
+         representation['role_score'],
          representation['user_follower_count'],
          representation['is_verified'],
-         representation['user_event_time_diff']
+         representation['favorites_count'],
+         # Tweet
+         representation['has_question_mark'],
+         representation['question_mark_count'],
+         representation['has_exclamation_mark'],
+         representation['exclamation_mark_count'],
+         representation['has_dotdotdot_mark'],
+         representation['dotdotdot_mark_count']
+
+         # representation['reaction_speed'],
+         # representation['reaction_mention_count'],
+         # representation['reaction_retweet_count'],
+         # representation['user_event_time_diff']
     ]
     X.append(x.copy())
     y.append(representation['isRumor'])
@@ -36,13 +50,27 @@ for representation in test_set:
          representation['early_reaction_count'],
          representation['mid_reaction_count'],
          representation['all_reaction_count'],
-         representation['reaction_speed'],
-         representation['reaction_mention_count'],
-         representation['reaction_retweet_count'],
          representation['is_sensitive'],
+         # User
+         representation['is_geo_enabled'],
+         representation['has_description'],
+         representation['description_word_count'],
+         representation['role_score'],
          representation['user_follower_count'],
          representation['is_verified'],
-         representation['user_event_time_diff']
+         representation['favorites_count'],
+         # Tweet
+         representation['has_question_mark'],
+         representation['question_mark_count'],
+         representation['has_exclamation_mark'],
+         representation['exclamation_mark_count'],
+         representation['has_dotdotdot_mark'],
+         representation['dotdotdot_mark_count']
+
+         # representation['reaction_speed'],
+         # representation['reaction_mention_count'],
+         # representation['reaction_retweet_count'],
+         # representation['user_event_time_diff']
     ]
     X_test.append(x.copy())
     y_test.append(representation['isRumor'])
