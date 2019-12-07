@@ -1,7 +1,8 @@
 import datetime
+import functools
 
 from elasticsearch import Elasticsearch
-
+from functools import lru_cache
 
 class PhemeDatasetES:
 
@@ -9,8 +10,19 @@ class PhemeDatasetES:
         self.es = Elasticsearch(hosts=[hosts])
         self.index_name = index_name
 
-    def get_data(self, query, sort):
+    @lru_cache(maxsize=4096)
+    def get_source_tweet_without_scroll(self, tweet_id):
+        query = {"match": {"source_tweet_id": tweet_id}}
+        print("Trying to get query: " + str(query))
         size = 1000
+        data = []
+        result = self.es.search(index=self.index_name, body={'size': size, 'query': query}, sort="created_at:asc")
+        data.extend(map(lambda d: d['_source'], result['hits']['hits']))
+        return data.copy()
+
+    def get_data(self, query, sort):
+        print("Trying to get query: " + str(query))
+        size = 3000
         data = []
         if sort:
             result = self.es.search(index=self.index_name, scroll='1m', body={'size': size, 'query': query}, sort=sort)
@@ -28,6 +40,7 @@ class PhemeDatasetES:
         return data
 
     def get_data_event_name(self, event_name):
+        print("Starting to fetch event: " + str(event_name))
         return self.get_data({'match': {'event_name': event_name}}, None)
 
     def get_event_time_frames(self, event_name, frame_count):
@@ -117,6 +130,10 @@ class PhemeDatasetES:
         return int(datetime.datetime.strptime(data["created_at"], '%a %b %d %H:%M:%S +0000 %Y').timestamp())
 
     @staticmethod
+    def get_timestamp_of_user(data):
+        return int(datetime.datetime.strptime(data['user']["created_at"], '%a %b %d %H:%M:%S +0000 %Y').timestamp())
+
+    @staticmethod
     def _print_progress(iteration, total, prefix='', suffix='', decimals=1, length=100, fill='█', printEnd="\r"):
         """
         Call in a loop to create terminal progress bar
@@ -165,8 +182,7 @@ class PhemeDatasetES:
         return len(filtered_frame) / total_time
 
     def __get_total_reaction_time(self, source_tweet):
-        query = {"match": {"source_tweet_id": source_tweet['id_str']}}
-        response_data = self.get_data(query, "created_at:asc")
+        response_data = self.get_source_tweet_without_scroll(source_tweet['id_str'])
         if len(response_data) > 0:
             start = self.get_timestamp(response_data[0])
             end = self.get_timestamp(response_data[-1])
@@ -175,8 +191,7 @@ class PhemeDatasetES:
             return 0
 
     def __get_total_reaction_count(self, source_tweet, max_time):
-        query = {"match": {"source_tweet_id": source_tweet['id_str']}}
-        response_data = self.get_data(query, "created_at:asc")
+        response_data = self.get_source_tweet_without_scroll(source_tweet['id_str'])
         if max_time is None:
             return len(response_data)
         if len(response_data) == 0:
@@ -185,17 +200,49 @@ class PhemeDatasetES:
         max_stamp = start + max_time
         return len(list(filter(lambda x: self.get_timestamp(x) < max_stamp, response_data)))
 
+    def __get_total_reaction_mention_count(self, source_tweet):
+        response_data = self.get_source_tweet_without_scroll(source_tweet['id_str'])
+        if len(response_data) == 0:
+            return 0
+        total_user_mention_count = 0
+        for tweet in response_data:
+            if 'entities' in tweet and 'user_mentions' in tweet['entities']:
+                total_user_mention_count += len(tweet['entities']['user_mentions'])
+        return total_user_mention_count
+
+    def __get_total_reaction_retweet_count(self, source_tweet):
+        response_data = self.get_source_tweet_without_scroll(source_tweet['id_str'])
+        if len(response_data) == 0:
+            return 0
+        total_retweet_count = 0
+        for tweet in response_data:
+            total_retweet_count += int(tweet['retweet_count'])
+        return total_retweet_count
+
     def get_source_tweet_representations(self, event_name):
         data = self.get_data_event_name(event_name)
         features = []
-        for source_tweet in filter(lambda x: 'source_tweet_id' not in x, data):
+
+        tweets = filter(lambda x: 'source_tweet_id' not in x, data)
+        for source_tweet in tweets:
+            total_reaction_count = self.__get_total_reaction_count(source_tweet, None)
+            total_time_span = self.__get_total_reaction_time(source_tweet)
+            if total_time_span == 0:
+                total_time_span = 1
             features.append(
                 {'id': source_tweet['id_str'],
                  'isRumor': source_tweet['rumor'] == 1,
-                 'time_span': self.__get_total_reaction_time(source_tweet),
-                 'early_reaction_count': self.__get_total_reaction_count(source_tweet, 15*60),
-                 'mid_reaction_count': self.__get_total_reaction_count(source_tweet, 60*60),
-                 'all_reaction_count': self.__get_total_reaction_count(source_tweet, None)
+                 'time_span': total_time_span,  # deeper
+                 'early_reaction_count': self.__get_total_reaction_count(source_tweet, 15 * 60),
+                 'mid_reaction_count': self.__get_total_reaction_count(source_tweet, 60 * 60),
+                 'all_reaction_count': self.__get_total_reaction_count(source_tweet, None),
+                 'reaction_speed': total_reaction_count / total_time_span,  # faster
+                 'reaction_mention_count': self.__get_total_reaction_mention_count(source_tweet),
+                 'reaction_retweet_count': self.__get_total_reaction_retweet_count(source_tweet),  # broader
+                 'is_sensitive': int('possibly_sensitive' in source_tweet and source_tweet['possibly_sensitive'] is True),
+                 'user_follower_count': source_tweet['user']['followers_count'],
+                 'is_verified': int(source_tweet['user']['verified'] is True),
+                 'user_event_time_diff': int(self.get_timestamp(source_tweet) - self.get_timestamp_of_user(source_tweet))
                  }
             )
         return features
