@@ -3,6 +3,7 @@ import datetime
 from elasticsearch import Elasticsearch
 from functools import lru_cache
 
+
 class PhemeDatasetES:
 
     def __init__(self, hosts, index_name):
@@ -64,10 +65,9 @@ class PhemeDatasetES:
         print("Result length: " + str(len(result)))
         return time_frames
 
-    def get_event_time_frames_with_time(self, event_name, frame_size):
-        result = self.get_data({'match': {'event_name': event_name}}, 'created_at:asc')
+    def get_event_time_frames_with_time(self, cij, frame_size):
+        result = cij
         first = self.get_timestamp(result[0])
-        last = self.get_timestamp(result[-1])
         counter = 1
         time_frames = []
         current_frame = []
@@ -77,21 +77,66 @@ class PhemeDatasetES:
                 current_frame.append(data)
                 length += 1
             else:
-                print(str(counter) + " Frame Size: " + str(len(current_frame)))
+                # print(str(counter) + " Frame Size: " + str(len(current_frame)))
                 time_frames.append(current_frame)
                 counter += 1
                 while self.get_timestamp(data) >= (first + (counter * frame_size)):
                     current_frame = []
                     time_frames.append(current_frame.copy())
                     counter += 1
-                    print(str(counter) + " Frame Size: " + str(len(current_frame)))
+                    # print(str(counter) + " Frame Size: " + str(len(current_frame)))
                 current_frame.append(data)
                 length += 1
 
         time_frames.append(current_frame.copy())
-        print(str(counter) + " Frame Size: " + str(len(current_frame)))
-        print("Time Frame length: " + str(len(time_frames)))
+        # print(str(counter) + " Frame Size: " + str(len(current_frame)))
+        # print("Time Frame length: " + str(len(time_frames)))
         return time_frames
+
+    def get_source_and_reactions(self, event_name):
+        source_tweets = self.get_data({'bool': {'must': [{'match': {'event_name': event_name}}],
+                                      'must_not': [{'exists': {'field': 'source_tweet_id'}}]}}, 'created_at:asc')
+        conversations = list()
+        for source_tweet in source_tweets:
+            conversation = dict()
+            conversation["source_tweet"] = source_tweet
+            conversation["reactions"] = self.get_source_tweet_without_scroll(source_tweet["id_str"])
+            conversations.append(conversation.copy())
+
+        return conversations
+
+    def get_all_cij(self, event_name, t):
+        conversations = self.get_source_and_reactions(event_name)
+        frames = list()
+        for cij in conversations:
+            pre_frame = list()
+            pre_frame.append(cij["source_tweet"])
+            pre_frame.extend(cij["reactions"])
+            frame = self.get_event_time_frames_with_time(pre_frame, t)
+            frames.append(frame.copy())
+
+        return frames
+
+    def get_vectors_of_cij(self, event_name, t):
+        vectors = list()
+        frames = self.get_all_cij(event_name, t)
+        for frame in frames:
+            vector = list()
+            for cij in frame:
+                vector.append(len(cij))
+            vectors.append(vector.copy())
+
+        return vectors
+
+    def get_vectors_of_cij_with_padding(self, event_name, t):
+        vectors = self.get_vectors_of_cij(event_name, t)
+        max_vector_length = max(len(x) for x in vectors)
+        for vector in vectors:
+            if len(vector) < max_vector_length:
+                for i in range(max_vector_length - len(vector)):
+                    vector.append(0)
+        return vectors
+
 
     @staticmethod
     def get_speed_of_time_frame(time_frame):
@@ -296,7 +341,7 @@ class PhemeDatasetES:
         else:
             return 0
 
-        
+
 
     def get_source_tweet_representations(self, event_name):
         data = self.get_data_event_name(event_name)
