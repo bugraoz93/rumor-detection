@@ -1,5 +1,4 @@
 import datetime
-import functools
 
 from elasticsearch import Elasticsearch
 from functools import lru_cache
@@ -219,6 +218,86 @@ class PhemeDatasetES:
             total_retweet_count += int(tweet['retweet_count'])
         return total_retweet_count
 
+    def __get_user_is_geo_enabled(self, source_tweet):
+        response_data = self.get_source_tweet_without_scroll(source_tweet["id_str"])
+        if len(response_data) == 0:
+            return 0
+        else:
+            return int(response_data[0]["user"]["geo_enabled"] == "true")
+
+    def __get_user_has_description(self, source_tweet):
+        response_data = self.get_source_tweet_without_scroll(source_tweet["id_str"])
+        if len(response_data) == 0:
+            return 0
+        else:
+            return int(len(response_data[0]["user"]["description"]) > 0)
+
+    def __get_user_description_count(self, source_tweet):
+        response_data = self.get_source_tweet_without_scroll(source_tweet["id_str"])
+        if len(response_data) == 0:
+            return 0
+        else:
+            if len(response_data[0]["user"]["description"]) > 0:
+                return len(response_data[0]["user"]["description"].split(' '))
+            else:
+                return 0
+
+    @staticmethod
+    def __get_has_question_mark(text):
+        if '?' in text:
+            return 1
+        else:
+            return 0
+
+    @staticmethod
+    def __get_number_of_question_mark(text):
+        if '?' in text:
+            count = 0
+            for i in text:
+                if i == '?':
+                    count = count + 1
+            return count
+        else:
+            return 0
+
+    @staticmethod
+    def __get_has_exclamation_mark(text):
+        if '!' in text:
+            return 1
+        else:
+            return 0
+
+    @staticmethod
+    def __get_number_of_exclamation_mark(text):
+        if '!' in text:
+            count = 0
+            for i in text:
+                if i == '!':
+                    count = count + 1
+            return count
+        else:
+            return 0
+
+    @staticmethod
+    def __get_has_dotdotdot(text):
+        if '...' in text:
+            return 1
+        else:
+            return 0
+
+    @staticmethod
+    def __get_number_of_dotdotdot(text):
+        if '...' in text:
+            count = 0
+            for i in text:
+                if i == '...':
+                    count = count + 1
+            return count
+        else:
+            return 0
+
+        
+
     def get_source_tweet_representations(self, event_name):
         data = self.get_data_event_name(event_name)
         features = []
@@ -229,19 +308,44 @@ class PhemeDatasetES:
             total_time_span = self.__get_total_reaction_time(source_tweet)
             if total_time_span == 0:
                 total_time_span = 1
+            if source_tweet["user"]["friends_count"] > 0:
+                role_score = source_tweet['user']['followers_count'] / source_tweet['user']['friends_count']
+            else:
+                role_score = 0
             features.append(
                 {'id': source_tweet['id_str'],
                  'isRumor': source_tweet['rumor'] == 1,
                  'time_span': total_time_span,  # deeper
+                 'is_sensitive': int('possibly_sensitive' in source_tweet and source_tweet['possibly_sensitive'] is True),
+                 'first_five_reaction_count': self.__get_total_reaction_count(source_tweet, 5 * 60),
                  'early_reaction_count': self.__get_total_reaction_count(source_tweet, 15 * 60),
-                 'mid_reaction_count': self.__get_total_reaction_count(source_tweet, 60 * 60),
+                 'mid_reaction_count': self.__get_total_reaction_count(source_tweet, 30 * 60),
+                 'late_reaction_count': self.__get_total_reaction_count(source_tweet, 60 * 60),
                  'all_reaction_count': self.__get_total_reaction_count(source_tweet, None),
+                 'media_count': len((source_tweet['entities'] and 'media' in source_tweet['entities']) and source_tweet['entities']['media'] or []),
+                 'hashtag_count': len(source_tweet['entities'] and ('hashtags' in source_tweet['entities']) and source_tweet['entities']['hashtags'] or []),
+                 # User Features
+                 'is_geo_enabled': self.__get_user_is_geo_enabled(source_tweet),
+                 'has_description': self.__get_user_has_description(source_tweet),
+                 'description_word_count': self.__get_user_description_count(source_tweet),
+                 'role_score': int(role_score),
+                 'user_follower_count': source_tweet['user']['followers_count'],
+                 'is_verified': int(source_tweet['user']['verified'] is True),
+                 'favorites_count': source_tweet['user']['favourites_count'],
+                 'engagement_score': (source_tweet['user']['statuses_count']) /
+                                     (datetime.datetime.now().timestamp() - self.get_timestamp_of_user(source_tweet)),
+
+                 # Tweet Features
+                 'has_question_mark': self.__get_has_question_mark(source_tweet["text"]),
+                 'question_mark_count': self.__get_number_of_question_mark(source_tweet["text"]),
+                 'has_exclamation_mark': self.__get_has_exclamation_mark(source_tweet["text"]),
+                 'exclamation_mark_count': self.__get_number_of_exclamation_mark(source_tweet["text"]),
+                 'has_dotdotdot_mark': self.__get_has_dotdotdot(source_tweet["text"]),
+                 'dotdotdot_mark_count': self.__get_number_of_dotdotdot(source_tweet["text"]),
+
                  'reaction_speed': total_reaction_count / total_time_span,  # faster
                  'reaction_mention_count': self.__get_total_reaction_mention_count(source_tweet),
                  'reaction_retweet_count': self.__get_total_reaction_retweet_count(source_tweet),  # broader
-                 'is_sensitive': int('possibly_sensitive' in source_tweet and source_tweet['possibly_sensitive'] is True),
-                 'user_follower_count': source_tweet['user']['followers_count'],
-                 'is_verified': int(source_tweet['user']['verified'] is True),
                  'user_event_time_diff': int(self.get_timestamp(source_tweet) - self.get_timestamp_of_user(source_tweet))
                  }
             )
