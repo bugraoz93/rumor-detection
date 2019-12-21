@@ -1,6 +1,5 @@
 import datetime
-import functools
-import math
+
 from elasticsearch import Elasticsearch
 from functools import lru_cache
 
@@ -297,6 +296,8 @@ class PhemeDatasetES:
         else:
             return 0
 
+        
+
     def get_source_tweet_representations(self, event_name):
         data = self.get_data_event_name(event_name)
         features = []
@@ -316,9 +317,13 @@ class PhemeDatasetES:
                  'isRumor': source_tweet['rumor'] == 1,
                  'time_span': total_time_span,  # deeper
                  'is_sensitive': int('possibly_sensitive' in source_tweet and source_tweet['possibly_sensitive'] is True),
+                 'first_five_reaction_count': self.__get_total_reaction_count(source_tweet, 5 * 60),
                  'early_reaction_count': self.__get_total_reaction_count(source_tweet, 15 * 60),
-                 'mid_reaction_count': self.__get_total_reaction_count(source_tweet, 60 * 60),
+                 'mid_reaction_count': self.__get_total_reaction_count(source_tweet, 30 * 60),
+                 'late_reaction_count': self.__get_total_reaction_count(source_tweet, 60 * 60),
                  'all_reaction_count': self.__get_total_reaction_count(source_tweet, None),
+                 'media_count': len((source_tweet['entities'] and 'media' in source_tweet['entities']) and source_tweet['entities']['media'] or []),
+                 'hashtag_count': len(source_tweet['entities'] and ('hashtags' in source_tweet['entities']) and source_tweet['entities']['hashtags'] or []),
                  # User Features
                  'is_geo_enabled': self.__get_user_is_geo_enabled(source_tweet),
                  'has_description': self.__get_user_has_description(source_tweet),
@@ -327,18 +332,21 @@ class PhemeDatasetES:
                  'user_follower_count': source_tweet['user']['followers_count'],
                  'is_verified': int(source_tweet['user']['verified'] is True),
                  'favorites_count': source_tweet['user']['favourites_count'],
+                 'engagement_score': (source_tweet['user']['statuses_count']) /
+                                     (datetime.datetime.now().timestamp() - self.get_timestamp_of_user(source_tweet)),
+
                  # Tweet Features
                  'has_question_mark': self.__get_has_question_mark(source_tweet["text"]),
                  'question_mark_count': self.__get_number_of_question_mark(source_tweet["text"]),
                  'has_exclamation_mark': self.__get_has_exclamation_mark(source_tweet["text"]),
                  'exclamation_mark_count': self.__get_number_of_exclamation_mark(source_tweet["text"]),
                  'has_dotdotdot_mark': self.__get_has_dotdotdot(source_tweet["text"]),
-                 'dotdotdot_mark_count': self.__get_number_of_dotdotdot(source_tweet["text"])
+                 'dotdotdot_mark_count': self.__get_number_of_dotdotdot(source_tweet["text"]),
 
-                 # 'reaction_speed': total_reaction_count / total_time_span,  # faster
-                 # 'reaction_mention_count': self.__get_total_reaction_mention_count(source_tweet),
-                 # 'reaction_retweet_count': self.__get_total_reaction_retweet_count(source_tweet),  # broader
-                 # 'user_event_time_diff': int(self.get_timestamp(source_tweet) - self.get_timestamp_of_user(source_tweet))
+                 'reaction_speed': total_reaction_count / total_time_span,  # faster
+                 'reaction_mention_count': self.__get_total_reaction_mention_count(source_tweet),
+                 'reaction_retweet_count': self.__get_total_reaction_retweet_count(source_tweet),  # broader
+                 'user_event_time_diff': int(self.get_timestamp(source_tweet) - self.get_timestamp_of_user(source_tweet))
                  }
             )
         return features
