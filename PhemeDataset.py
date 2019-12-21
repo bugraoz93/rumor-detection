@@ -108,34 +108,38 @@ class PhemeDatasetES:
     def get_all_cij(self, event_name, t):
         conversations = self.get_source_and_reactions(event_name)
         frames = list()
+        rumors = list()
         for cij in conversations:
             pre_frame = list()
             pre_frame.append(cij["source_tweet"])
+            rumors.append(cij["source_tweet"]["rumor"])
             pre_frame.extend(cij["reactions"])
+            for reaction in cij["reactions"]:
+                rumors.append(reaction["rumor"])
             frame = self.get_event_time_frames_with_time(pre_frame, t)
             frames.append(frame.copy())
 
-        return frames
+        return frames, rumors
 
     def get_vectors_of_cij(self, event_name, t):
         vectors = list()
-        frames = self.get_all_cij(event_name, t)
+        frames, rumors = self.get_all_cij(event_name, t)
         for frame in frames:
             vector = list()
             for cij in frame:
                 vector.append(len(cij))
             vectors.append(vector.copy())
 
-        return vectors
+        return vectors, rumors
 
     def get_vectors_of_cij_with_padding(self, event_name, t):
-        vectors = self.get_vectors_of_cij(event_name, t)
+        vectors, rumors = self.get_vectors_of_cij(event_name, t)
         max_vector_length = max(len(x) for x in vectors)
         for vector in vectors:
             if len(vector) < max_vector_length:
                 for i in range(max_vector_length - len(vector)):
                     vector.append(0)
-        return vectors
+        return vectors, rumors
 
 
     @staticmethod
@@ -377,7 +381,6 @@ class PhemeDatasetES:
                  'favorites_count': source_tweet['user']['favourites_count'],
                  'engagement_score': (source_tweet['user']['statuses_count']) /
                                      (datetime.datetime.now().timestamp() - self.get_timestamp_of_user(source_tweet)),
-
                  # Tweet Features
                  'has_question_mark': self.__get_has_question_mark(source_tweet["text"]),
                  'question_mark_count': self.__get_number_of_question_mark(source_tweet["text"]),
