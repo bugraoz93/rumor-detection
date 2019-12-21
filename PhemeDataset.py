@@ -341,8 +341,6 @@ class PhemeDatasetES:
         else:
             return 0
 
-
-
     def get_source_tweet_representations(self, event_name):
         data = self.get_data_event_name(event_name)
         features = []
