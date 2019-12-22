@@ -1,3 +1,4 @@
+import copy
 import datetime
 import json
 
@@ -139,7 +140,7 @@ class PhemeDatasetES:
         return vectors, rumors, representations
 
     def get_vectors_of_cij_with_max_lengths(self, event_name, t):
-        print("Vectors creating for event " + str(event_name) + " and for the time " + str(t))
+        print("Vectors creating for event " + str(event_name) + " and for the time " + str(t / 60))
         vectors, rumors, representations = self.get_vectors_of_cij(event_name, t)
         current_max_length = max(len(x) for x in vectors)
         current_key = str(int(t / 60))
@@ -158,32 +159,40 @@ class PhemeDatasetES:
         for time in times.keys():
             vectors_times[time], _, _ = self.get_vectors_of_cij_with_max_lengths(event_name, times[time])
 
-        for vectors_time_key in vectors_times.keys():
-            for vector in vectors_times[vectors_time_key]:
-                current_max_length = self.max_lengths[vectors_time_key]
-                if len(vector) < current_max_length:
-                    for i in range(current_max_length - len(vector)):
-                        vector.append(0)
+        vectors_times_copy = copy.deepcopy(vectors_times)
 
         combined_features = list()
-        combined_feature = dict()
         for i in range(len(vectors)):
+            combined_feature = dict()
             for vector_time_key in vectors_times.keys():
                 combined_feature["vector-" + str(vector_time_key)] = vectors_times[vector_time_key].pop(0)
             current_representation = representations.pop(0)
             for representation in current_representation.keys():
                 combined_feature[representation] = current_representation[representation]
             combined_feature["rumor"] = rumors.pop(0)
-            combined_features.append(combined_feature)
+            combined_features.append(combined_feature.copy())
 
-        return combined_features
+        return combined_features, vectors_times_copy
 
     def write_combined_features_to_file(self):
         events = ["charliehebdo", "germanwings-crash", "sydneysiege", "ottawashooting", "ferguson"]
+
+        combined_features = dict()
+        combined_features_vector_times = dict()
         for event in events:
-            combined_features = self.get_vectors_of_cij_with_padding_only_event(event)
+            combined_features[event], combined_features_vector_times = self.get_vectors_of_cij_with_padding_only_event(event)
+
+        for event in events:
+            for vector_combined in combined_features[event]:
+                for vectors_time_key in combined_features_vector_times.keys():
+                    current_max_length = self.max_lengths[vectors_time_key]
+                    vector = vector_combined["vector-" + str(vectors_time_key)]
+                    if len(vector) < current_max_length:
+                        for i in range(current_max_length - len(vector)):
+                            vector.append(0)
+
             with open(str("files/" + event + ".txt"), "w") as file:
-                for combined_feature in combined_features:
+                for combined_feature in combined_features[event]:
                     file.write(json.dumps(combined_feature) + "\n")
             file.close()
 
