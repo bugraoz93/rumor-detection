@@ -1,4 +1,5 @@
 import datetime
+import json
 
 from elasticsearch import Elasticsearch
 from functools import lru_cache
@@ -9,6 +10,7 @@ class PhemeDatasetES:
     def __init__(self, hosts, index_name):
         self.es = Elasticsearch(hosts=[hosts])
         self.index_name = index_name
+        self.max_lengths = dict()
 
     @lru_cache(maxsize=4096)
     def get_source_tweet_without_scroll(self, tweet_id):
@@ -136,23 +138,33 @@ class PhemeDatasetES:
 
         return vectors, rumors, representations
 
-    def get_vectors_of_cij_with_padding(self, event_name, t):
+    def get_vectors_of_cij_with_max_lengths(self, event_name, t):
         print("Vectors creating for event " + str(event_name) + " and for the time " + str(t))
         vectors, rumors, representations = self.get_vectors_of_cij(event_name, t)
-        max_vector_length = max(len(x) for x in vectors)
-        for vector in vectors:
-            if len(vector) < max_vector_length:
-                for i in range(max_vector_length - len(vector)):
-                    vector.append(0)
+        current_max_length = max(len(x) for x in vectors)
+        current_key = str(int(t / 60))
+        if current_key in self.max_lengths:
+            if current_max_length > self.max_lengths[current_key]:
+                self.max_lengths[current_key] = max(len(x) for x in vectors)
+        else:
+            self.max_lengths[current_key] = max(len(x) for x in vectors)
 
         return vectors, rumors, representations
 
     def get_vectors_of_cij_with_padding_only_event(self, event_name):
         times = {"2": 2*60, "5": 5*60, "10": 10*60, "30": 30*60, "60": 60*60}
         vectors_times = dict()
-        vectors, rumors, representations = self.get_vectors_of_cij_with_padding(event_name, 2*60)
+        vectors, rumors, representations = self.get_vectors_of_cij_with_max_lengths(event_name, 2*60)
         for time in times.keys():
-            vectors_times[time], _, _ = self.get_vectors_of_cij_with_padding(event_name, times[time])
+            vectors_times[time], _, _ = self.get_vectors_of_cij_with_max_lengths(event_name, times[time])
+
+        for vectors_time_key in vectors_times.keys():
+            for vector in vectors_times[vectors_time_key]:
+                current_max_length = self.max_lengths[vectors_time_key]
+                if len(vector) < current_max_length:
+                    for i in range(current_max_length - len(vector)):
+                        vector.append(0)
+                print(len(vector))
 
         combined_features = list()
         combined_feature = dict()
@@ -165,6 +177,25 @@ class PhemeDatasetES:
             combined_feature["rumor"] = rumors.pop(0)
             combined_features.append(combined_feature)
 
+        return combined_features
+
+    def write_combined_features_to_file(self):
+        events = ["charliehebdo", "germanwings-crash", "sydneysiege", "ottawashooting", "ferguson"]
+        for event in events:
+            combined_features = self.get_vectors_of_cij_with_padding_only_event(event)
+            with open(str("files/" + event + ".txt"), "w") as file:
+                for combined_feature in combined_features:
+                    file.write(json.dumps(combined_feature) + "\n")
+            file.close()
+
+    @staticmethod
+    def read_combined_features_from_file(event_name):
+        with open(str("files/" + event_name + ".txt"), "r") as file:
+            combined_features_lines = (file.readlines())
+        combined_features = list()
+        for line in combined_features_lines:
+            combined_features.append(json.loads(line))
+        file.close()
         return combined_features
 
     @staticmethod
