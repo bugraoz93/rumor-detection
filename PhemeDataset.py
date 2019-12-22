@@ -121,8 +121,6 @@ class PhemeDatasetES:
             rumors.append(cij["source_tweet"]["rumor"])
             pre_frame.extend(cij["reactions"])
             representations.append(self.get_source_tweet_representation(cij["source_tweet"]))
-            for reaction in cij["reactions"]:
-                rumors.append(reaction["rumor"])
             frame = self.get_event_time_frames_with_time(pre_frame, t)
             frames.append(frame.copy())
 
