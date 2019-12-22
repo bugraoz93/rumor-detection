@@ -95,7 +95,8 @@ class PhemeDatasetES:
 
     def get_source_and_reactions(self, event_name):
         source_tweets = self.get_data({'bool': {'must': [{'match': {'event_name': event_name}}],
-                                      'must_not': [{'exists': {'field': 'source_tweet_id'}}]}}, 'created_at:asc')
+                                                'must_not': [{'exists': {'field': 'source_tweet_id'}}]}},
+                                      'created_at:asc')
         conversations = list()
         for source_tweet in source_tweets:
             conversation = dict()
@@ -109,38 +110,48 @@ class PhemeDatasetES:
         conversations = self.get_source_and_reactions(event_name)
         frames = list()
         rumors = list()
+        representations = list()
         for cij in conversations:
             pre_frame = list()
             pre_frame.append(cij["source_tweet"])
             rumors.append(cij["source_tweet"]["rumor"])
             pre_frame.extend(cij["reactions"])
+            representations.append(self.get_source_tweet_representation(cij["source_tweet"]))
             for reaction in cij["reactions"]:
                 rumors.append(reaction["rumor"])
             frame = self.get_event_time_frames_with_time(pre_frame, t)
             frames.append(frame.copy())
 
-        return frames, rumors
+        return frames, rumors, representations
 
     def get_vectors_of_cij(self, event_name, t):
         vectors = list()
-        frames, rumors = self.get_all_cij(event_name, t)
+        frames, rumors, representations = self.get_all_cij(event_name, t)
         for frame in frames:
             vector = list()
             for cij in frame:
                 vector.append(len(cij))
             vectors.append(vector.copy())
 
-        return vectors, rumors
+        return vectors, rumors, representations
 
     def get_vectors_of_cij_with_padding(self, event_name, t):
-        vectors, rumors = self.get_vectors_of_cij(event_name, t)
+        vectors, rumors, representations = self.get_vectors_of_cij(event_name, t)
         max_vector_length = max(len(x) for x in vectors)
         for vector in vectors:
             if len(vector) < max_vector_length:
                 for i in range(max_vector_length - len(vector)):
                     vector.append(0)
-        return vectors, rumors
 
+        combined_features = list()
+        for vector in vectors:
+            combined_feature = dict()
+            combined_feature["vector"] = vector
+            combined_feature["features"] = representations.pop(0)
+            combined_feature["rumor"] = rumors.pop(0)
+            combined_features.append(combined_feature.copy())
+
+        return combined_features
 
     @staticmethod
     def get_speed_of_time_frame(time_frame):
@@ -345,6 +356,56 @@ class PhemeDatasetES:
         else:
             return 0
 
+    def get_source_tweet_representation(self, source_tweet):
+        total_reaction_count = self.__get_total_reaction_count(source_tweet, None)
+        total_time_span = self.__get_total_reaction_time(source_tweet)
+        if total_time_span == 0:
+            total_time_span = 1
+        if source_tweet["user"]["friends_count"] > 0:
+            role_score = source_tweet['user']['followers_count'] / source_tweet['user']['friends_count']
+        else:
+            role_score = 0
+        return {
+                # 'id': source_tweet['id_str'],
+                # 'isRumor': source_tweet['rumor'] == 1,
+                'time_span': total_time_span,  # deeper
+                'is_sensitive': int(
+                    'possibly_sensitive' in source_tweet and source_tweet['possibly_sensitive'] is True),
+                'first_five_reaction_count': self.__get_total_reaction_count(source_tweet, 5 * 60),
+                'early_reaction_count': self.__get_total_reaction_count(source_tweet, 15 * 60),
+                'mid_reaction_count': self.__get_total_reaction_count(source_tweet, 30 * 60),
+                'late_reaction_count': self.__get_total_reaction_count(source_tweet, 60 * 60),
+                'all_reaction_count': self.__get_total_reaction_count(source_tweet, None),
+                'media_count': len(
+                    (source_tweet['entities'] and 'media' in source_tweet['entities']) and source_tweet['entities'][
+                        'media'] or []),
+                'hashtag_count': len(
+                    source_tweet['entities'] and ('hashtags' in source_tweet['entities']) and source_tweet['entities'][
+                        'hashtags'] or []),
+                # User Features
+                'is_geo_enabled': self.__get_user_is_geo_enabled(source_tweet),
+                'has_description': self.__get_user_has_description(source_tweet),
+                'description_word_count': self.__get_user_description_count(source_tweet),
+                'role_score': int(role_score),
+                'user_follower_count': source_tweet['user']['followers_count'],
+                'is_verified': int(source_tweet['user']['verified'] is True),
+                'favorites_count': source_tweet['user']['favourites_count'],
+                'engagement_score': (source_tweet['user']['statuses_count']) /
+                                    (datetime.datetime.now().timestamp() - self.get_timestamp_of_user(source_tweet)),
+                # Tweet Features
+                'has_question_mark': self.__get_has_question_mark(source_tweet["text"]),
+                'question_mark_count': self.__get_number_of_question_mark(source_tweet["text"]),
+                'has_exclamation_mark': self.__get_has_exclamation_mark(source_tweet["text"]),
+                'exclamation_mark_count': self.__get_number_of_exclamation_mark(source_tweet["text"]),
+                'has_dotdotdot_mark': self.__get_has_dotdotdot(source_tweet["text"]),
+                'dotdotdot_mark_count': self.__get_number_of_dotdotdot(source_tweet["text"]),
+
+                'reaction_speed': total_reaction_count / total_time_span,  # faster
+                'reaction_mention_count': self.__get_total_reaction_mention_count(source_tweet),
+                'reaction_retweet_count': self.__get_total_reaction_retweet_count(source_tweet),  # broader
+                'user_event_time_diff': int(self.get_timestamp(source_tweet) - self.get_timestamp_of_user(source_tweet))
+                }
+
     def get_source_tweet_representations(self, event_name):
         data = self.get_data_event_name(event_name)
         features = []
@@ -363,14 +424,19 @@ class PhemeDatasetES:
                 {'id': source_tweet['id_str'],
                  'isRumor': source_tweet['rumor'] == 1,
                  'time_span': total_time_span,  # deeper
-                 'is_sensitive': int('possibly_sensitive' in source_tweet and source_tweet['possibly_sensitive'] is True),
+                 'is_sensitive': int(
+                     'possibly_sensitive' in source_tweet and source_tweet['possibly_sensitive'] is True),
                  'first_five_reaction_count': self.__get_total_reaction_count(source_tweet, 5 * 60),
                  'early_reaction_count': self.__get_total_reaction_count(source_tweet, 15 * 60),
                  'mid_reaction_count': self.__get_total_reaction_count(source_tweet, 30 * 60),
                  'late_reaction_count': self.__get_total_reaction_count(source_tweet, 60 * 60),
                  'all_reaction_count': self.__get_total_reaction_count(source_tweet, None),
-                 'media_count': len((source_tweet['entities'] and 'media' in source_tweet['entities']) and source_tweet['entities']['media'] or []),
-                 'hashtag_count': len(source_tweet['entities'] and ('hashtags' in source_tweet['entities']) and source_tweet['entities']['hashtags'] or []),
+                 'media_count': len(
+                     (source_tweet['entities'] and 'media' in source_tweet['entities']) and source_tweet['entities'][
+                         'media'] or []),
+                 'hashtag_count': len(
+                     source_tweet['entities'] and ('hashtags' in source_tweet['entities']) and source_tweet['entities'][
+                         'hashtags'] or []),
                  # User Features
                  'is_geo_enabled': self.__get_user_is_geo_enabled(source_tweet),
                  'has_description': self.__get_user_has_description(source_tweet),
@@ -392,7 +458,8 @@ class PhemeDatasetES:
                  'reaction_speed': total_reaction_count / total_time_span,  # faster
                  'reaction_mention_count': self.__get_total_reaction_mention_count(source_tweet),
                  'reaction_retweet_count': self.__get_total_reaction_retweet_count(source_tweet),  # broader
-                 'user_event_time_diff': int(self.get_timestamp(source_tweet) - self.get_timestamp_of_user(source_tweet))
+                 'user_event_time_diff': int(
+                     self.get_timestamp(source_tweet) - self.get_timestamp_of_user(source_tweet))
                  }
             )
         return features
