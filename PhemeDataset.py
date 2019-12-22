@@ -93,6 +93,7 @@ class PhemeDatasetES:
         # print("Time Frame length: " + str(len(time_frames)))
         return time_frames
 
+    @lru_cache(maxsize=4096)
     def get_source_and_reactions(self, event_name):
         source_tweets = self.get_data({'bool': {'must': [{'match': {'event_name': event_name}}],
                                                 'must_not': [{'exists': {'field': 'source_tweet_id'}}]}},
@@ -136,6 +137,7 @@ class PhemeDatasetES:
         return vectors, rumors, representations
 
     def get_vectors_of_cij_with_padding(self, event_name, t):
+        print("Vectors creating for event " + str(event_name) + " and for the time " + str(t))
         vectors, rumors, representations = self.get_vectors_of_cij(event_name, t)
         max_vector_length = max(len(x) for x in vectors)
         for vector in vectors:
@@ -143,13 +145,25 @@ class PhemeDatasetES:
                 for i in range(max_vector_length - len(vector)):
                     vector.append(0)
 
+        return vectors, rumors, representations
+
+    def get_vectors_of_cij_with_padding_only_event(self, event_name):
+        times = {"2": 2*60, "5": 5*60, "10": 10*60, "30": 30*60, "60": 60*60}
+        vectors_times = dict()
+        vectors, rumors, representations = self.get_vectors_of_cij_with_padding(event_name, 2*60)
+        for time in times.keys():
+            vectors_times[time], _, _ = self.get_vectors_of_cij_with_padding(event_name, times[time])
+
         combined_features = list()
-        for vector in vectors:
-            combined_feature = dict()
-            combined_feature["vector"] = vector
-            combined_feature["features"] = representations.pop(0)
+        combined_feature = dict()
+        for i in range(len(vectors)):
+            for vector_time_key in vectors_times.keys():
+                combined_feature["vector-" + str(vector_time_key)] = vectors_times[vector_time_key].pop(0)
+            current_representation = representations.pop(0)
+            for representation in current_representation.keys():
+                combined_feature[representation] = current_representation[representation]
             combined_feature["rumor"] = rumors.pop(0)
-            combined_features.append(combined_feature.copy())
+            combined_features.append(combined_feature)
 
         return combined_features
 
