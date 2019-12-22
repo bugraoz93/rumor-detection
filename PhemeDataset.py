@@ -164,7 +164,6 @@ class PhemeDatasetES:
                 if len(vector) < current_max_length:
                     for i in range(current_max_length - len(vector)):
                         vector.append(0)
-                print(len(vector))
 
         combined_features = list()
         combined_feature = dict()
