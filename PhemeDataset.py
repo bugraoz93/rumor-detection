@@ -468,7 +468,7 @@ class PhemeDatasetES:
             if total_time_span == 0:
                 total_time_span = 1
             if source_tweet["user"]["friends_count"] > 0:
-                role_score = source_tweet['user']['followers_count'] / source_tweet['user']['friends_count']
+                role_score = source_tweet['user']['followers_count'] / (source_tweet['user']['friends_count'])
             else:
                 role_score = 0
             features.append(

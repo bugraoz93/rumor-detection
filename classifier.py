@@ -1,247 +1,317 @@
-from sklearn.feature_selection import f_classif, SelectKBest
-from sklearn.model_selection import train_test_split, KFold
-from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier, VotingClassifier
-from sklearn.svm import SVC
+import json
 from PhemeDataset import PhemeDatasetES
-from sklearn.metrics import classification_report, precision_score, recall_score
+from sklearn.metrics import classification_report, precision_score, recall_score, mean_squared_error, accuracy_score, balanced_accuracy_score
+from sklearn.tree import DecisionTreeClassifier, _tree
+from sklearn.neural_network import MLPClassifier
+from sklearn.svm import SVC
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.cluster import KMeans
 
-dataset = PhemeDatasetES(hosts="http://0.0.0.0:9200", index_name="pheme_tweet_data")
+from sklearn.naive_bayes import MultinomialNB
 
+dataset = PhemeDatasetES(hosts="http://localhost:9200", index_name="pheme_tweet_data")
 
-def get_all_data(dataset):
-    representations = []
-    representations.extend(dataset.get_source_tweet_representations("charliehebdo"))
-    representations.extend(dataset.get_source_tweet_representations("germanwings-crash"))
-    representations.extend(dataset.get_source_tweet_representations("sydneysiege"))
-    representations.extend(dataset.get_source_tweet_representations("ottawashooting"))
-    representations.extend(dataset.get_source_tweet_representations("ferguson"))
-    return representations
+EVENTS = [
+    'charliehebdo',
+    'germanwings-crash',
+    'sydneysiege',
+    'ottawashooting',
+    'ferguson'
+]
 
-features = ['time_span',
-            'early_reaction_count',
-             'mid_reaction_count',
-             'all_reaction_count',
-             'first_five_reaction_count',
-             'late_reaction_count',
-             'media_count',
-             'hashtag_count',
-             'reaction_speed',
-             'reaction_mention_count',
-             'reaction_retweet_count',
-             'user_event_time_diff',
-             # User
-             'is_geo_enabled',
-             'has_description',
-             'description_word_count',
-             'role_score',
-             'user_follower_count',
-             'is_verified',
-             'favorites_count',
-             'engagement_score',
-             # Tweet
-             'has_question_mark',
-             'question_mark_count',
-             'has_exclamation_mark',
-             'exclamation_mark_count',
-             'has_dotdotdot_mark',
-             'dotdotdot_mark_count'
-            ]
+TIME_FRAME_SIZES = [  # In terms of minutes
+    2,
+    5,
+    10,
+    30,
+    60,
+]
+
+SELECTED_FEATURES = [
+    'engagement_score',
+    'role_score',
+    'user_follower_count',
+    'reaction_speed'
+]
 
 
-def get_train_test_set(dataset):
-    X = []
-    y = []
-    all_data = get_all_data(dataset)
-    for representation in all_data:
-        x = [representation['time_span'],
-             representation['early_reaction_count'],
-             representation['mid_reaction_count'],
-             representation['all_reaction_count'],
-             representation['first_five_reaction_count'],
-             representation['late_reaction_count'],
-             representation['media_count'],
-             representation['hashtag_count'],
-             representation['reaction_speed'],
-             representation['reaction_mention_count'],
-             representation['reaction_retweet_count'],
-             representation['user_event_time_diff'],
-             # User
-             representation['is_geo_enabled'],
-             representation['has_description'],
-             representation['description_word_count'],
-             representation['role_score'],
-             representation['user_follower_count'],
-             representation['is_verified'],
-             representation['favorites_count'],
-             representation['engagement_score'],
-             # Tweet
-             representation['has_question_mark'],
-             representation['question_mark_count'],
-             representation['has_exclamation_mark'],
-             representation['exclamation_mark_count'],
-             representation['has_dotdotdot_mark'],
-             representation['dotdotdot_mark_count']
 
-             ]
-        X.append(x.copy())
-        y.append(representation['isRumor'])
+class BasicVoter:
 
-    return X, y, all_data
+    def fit(self, X, y):
+        pass
 
+    def predict(self, X):
+        y = []
+        for x in X:
+            if sum(x) > int(len(x) / 2):
+                y.append(1)
+            else:
+                y.append(0)
+        return y
 
-def eleminate_features(X, y, select_k_best=10):
-    # feature_selection, p = f_classif(X, y)
-    selector = SelectKBest(f_classif, k=select_k_best)
-    X_new = selector.fit_transform(X, y)
+def tree_to_code(tree, feature_names):
+    tree_ = tree.tree_
+    feature_name = [
+        feature_names[i] if i != _tree.TREE_UNDEFINED else "undefined!"
+        for i in tree_.feature
+    ]
+    print("def tree({}):".format(", ".join(feature_names)))
 
-    # threshold = sum([a for a in p if a > 0]) / len(p)
-    # sorted_p = sorted(p, reverse=True)
-    # threshold = sorted_p[select_k_best]
-    # X_new = []
-    # for x in X:
-    #     selected_indices = [j for j in range(len(x)) if p[j] > threshold]
-    #     X_new.append(list([x[k] for k in selected_indices]))
-    y_new = y.copy()
-    for j in range(len(y_new)):
-        if y_new[j]:
-            y_new[j] = 1
+    def recurse(node, depth):
+        indent = "  " * depth
+        if tree_.feature[node] != _tree.TREE_UNDEFINED:
+            name = feature_name[node]
+            threshold = tree_.threshold[node]
+            print("{}if {} <= {}:".format(indent, name, threshold))
+            recurse(tree_.children_left[node], depth + 1)
+            print("{}else:  # if {} > {}".format(indent, name, threshold))
+            recurse(tree_.children_right[node], depth + 1)
         else:
-            y_new[j] = 0
+            print("{}return {}".format(indent, tree_.value[node]))
 
-    return X_new, y_new, selector.scores_
+    recurse(0, 1)
 
-def eleminate_features_unvariant(X, y, select_k_best=10):
-    feature_selection, p = f_classif(X, y)
-    # threshold = sum([a for a in p if a > 0]) / len(p)
-    sorted_p = sorted(p, reverse=True)
-    threshold = sorted_p[select_k_best]
+class EventSelector:
 
-    X_new = []
-    for x in X:
-        selected_indices = [j for j in range(len(x)) if p[j] > threshold]
-        X_new.append(list([x[k] for k in selected_indices]))
-    y_new = y.copy()
-    for j in range(len(y_new)):
-        if y_new[j]:
-            y_new[j] = 1
+    def __init__(self):
+        self.events = EVENTS
+        self.test_event = 0
+
+    def get_one_partition(self):
+        for partition in self.__iter__():
+            return partition
+
+    def __iter__(self):
+        while True:
+            if self.test_event == len(self.events):
+                break
+            yield [self.events[i] for i in range(len(self.events)) if i != self.test_event], \
+                  self.events[self.test_event]
+            self.test_event = (self.test_event + 1)
+
+
+class RumorClassifier:
+
+    def __init__(self):
+        self.representations = {}
+        for e in EVENTS:
+            self.representations[e] = dataset.read_combined_features_from_file(e)
+
+        for s in SELECTED_FEATURES:
+            max_score = 0
+            min_score = 999999
+            for e in EVENTS:
+
+                    for rep in self.representations[e]:
+                        if rep[s] > max_score:
+                            max_score = rep[s]
+                        if rep[s] < min_score:
+                            min_score = rep[s]
+            for e in EVENTS:
+                for rep in self.representations[e]:
+                    rep[s] = (rep[s] - min_score)\
+                                              / (max_score - min_score)
+
+    def __representation_to_prop_level1_features(self, event_name, t):
+        X = []
+        y = []
+        for rep in self.representations[event_name]:
+            X.append(rep['vector-' + str(t)])
+            y.append(rep['rumor'])
+
+        return X, y
+
+    def __representation_to_level2_features(self, event_name, props):
+        X = []
+        y = []
+        for i in range(len(self.representations[event_name])):
+            X.extend([*list(self.representations[event_name][i]['features'].values()), *props[i]])
+            y.append(self.representations[event_name][i]['rumor'])
+
+        return X, y
+
+    def correct_padding(self, X1, X2):
+        max_len = max(len(X1[0]), len(X2[0]))
+        if len(X2[0]) == max_len:
+            for i in range(len(X1)):
+                X1[i].extend([0 for _ in range(max_len - len(X1[i]))])
         else:
-            y_new[j] = 0
+            for i in range(len(X2)):
+                X2[i].extend([0 for _ in range(max_len - len(X2[i]))])
+        return X1,X2
 
-    return X_new, y_new
+    def train_and_evaluate(self):
+        prob_models = {}
+        e = EventSelector()
 
+        results = {
 
-def parameter_selection(X_train, y_train):
-    min_sample_split = [5, 10, 25]
-    max_features = [x for x in range(4, len(X_train[0]), 2)]
-    max_depth = [20, 25, 30, 35]
-    best_param = {'msp': -1, 'md': -1, 'mf': -1, 'mf1': 0}
-    max_f1 = 0
-    for msp in min_sample_split:
-        for mf in max_features:
-            for md in max_depth:
-                rfc = RandomForestClassifier(n_estimators=100,
-                                             max_depth=md,
-                                             min_samples_split=msp,
-                                             max_features=mf)
-                split_count = 5
-                kf = KFold(n_splits=split_count)
-                f1 = 0
-                for train_index, validate_index in kf.split(X_train):
+        }
 
-                    rfc.fit([X_train[i] for i in train_index], [y_train[i] for i in train_index])
-                    y_predict = rfc.predict([X_train[i] for i in validate_index])
-                    r = recall_score([y_train[i] for i in validate_index], y_predict)
-                    p = precision_score([y_train[i] for i in validate_index], y_predict)
-                    if (p + r) > 0.01:
-                        f1 += float(2 * p * r) / float(p + r)
+        for train_events, test_event in e:
 
-                f1 = f1 / split_count
-                print("F1:" + str(f1))
+            results[test_event] = {}
 
-                if f1 > max_f1:
-                    best_param['mf1'] = f1
-                    best_param['msp'] = msp
-                    best_param['md'] = md
-                    best_param['mf'] = mf
-                    max_f1 = f1
+            for t_size in TIME_FRAME_SIZES:
+                model = MultinomialNB()
+                model_train_data_X = []
+                model_train_data_y = []
 
-    return best_param
+                model_test_data_X, model_test_data_y = self.__representation_to_prop_level1_features(test_event, t_size)
+                for event in train_events:
+                    X, y = self.__representation_to_prop_level1_features(event, t_size)
+                    model_train_data_X.extend(X)
+                    model_train_data_y.extend(y)
 
 
-def train_and_evaluate_rfc(X_train, X_test, y_train, y_test, params):
-    rfc = RandomForestClassifier(n_estimators=250,
-                                 max_depth=params['md'],
-                                 min_samples_split=params['msp'],
-                                 max_features=params['mf'])
+                model.fit(model_train_data_X, model_train_data_y)
 
-    rfc.fit(X_train, y_train)
-    y_predict = rfc.predict(X_test)
-    y_predict_train = rfc.predict(X_train)
-    c_test = classification_report(y_test, y_predict)
-    c_train = classification_report(y_train, y_predict_train)
-    r = recall_score(y_test, y_predict)
-    p = precision_score(y_test, y_predict)
+                y_pred_train = model.predict_proba(model_train_data_X)[:, 1]
+                #y_pred_train = model.predict(model_train_data_X)
+                train_loss = mean_squared_error(model_train_data_y, y_pred_train)
+                print("Train Loss %s: %f" % (str(t_size), train_loss))
 
-    print("Precision: " + str(p))
-    print("Recall:" + str(r))
-    print("-*-*-*-Classification Report Test-*-*-*-*-")
-    print(c_test)
-    print("-*-*-*-Classification Report Train-*-*-*-*-")
-    print(c_train)
+                y_pred = model.predict_proba(model_test_data_X)[:, 1]
+                #y_pred = model.predict(model_test_data_X)
+                test_loss = mean_squared_error(model_test_data_y, y_pred)
+                print("Test Loss %s:  %f" % (str(t_size),  test_loss))
+
+                prob_models[str(t_size)] = {}
+                prob_models[str(t_size)]['model'] = model
+                prob_models[str(t_size)]['preds_train'] = y_pred_train
+                prob_models[str(t_size)]['preds_test'] = y_pred
+
+            level2_train_X = []
+            level2_train_y = []
+            level2_test_X = []
+            level2_test_y = []
+
+            for e in train_events:
+                for i in range(len(self.representations[e])):
+                    X_train = []
+                    for t_size in TIME_FRAME_SIZES:
+                        X_train.append(prob_models[str(t_size)]['preds_train'][i])
+                    X_train.extend([v for k, v in self.representations[e][i].items() if k != 'rumor' and k in SELECTED_FEATURES])
+                    level2_train_X.append(X_train)
+                    level2_train_y.append(self.representations[e][i]['rumor'])
+
+            for i in range(len(self.representations[test_event])):
+                X_test = []
+                for t_size in TIME_FRAME_SIZES:
+                    X_test.append(prob_models[str(t_size)]['preds_test'][i])
+                X_test.extend([v for k, v in self.representations[test_event][i].items() if k != 'rumor' and k in SELECTED_FEATURES])
+                level2_test_X.append(X_test)
+                level2_test_y.append(self.representations[test_event][i]['rumor'])
+
+            c_0 = len([y for y in level2_train_y if y == 0])
+            c_1 = len(level2_train_y) - c_0
+            class_weights = {0: 1, 1: c_0/c_1}
+
+            decision_tree = DecisionTreeClassifier(max_depth=8)
+            decision_tree.fit(level2_train_X, level2_train_y)
+            level2_pred_test = decision_tree.predict(level2_test_X)
+            level2_pred_train = decision_tree.predict(level2_train_X)
+
+            c_train = classification_report(level2_train_y, level2_pred_train)
+            c_test = classification_report(level2_test_y, level2_pred_test)
+            precision = precision_score(level2_test_y, level2_pred_test)
+            recall = recall_score(level2_test_y, level2_pred_test)
+            f1 = 2 * precision * recall / (precision + recall)
+            accuracy = accuracy_score(level2_test_y, level2_pred_test)
+            balanced_accuracy = balanced_accuracy_score(level2_test_y, level2_pred_test)
+            results[test_event]['decision_tree'] = {'precision': precision,
+                                                    'recall': recall,
+                                                    'F1': f1,
+                                                    'accuracy': accuracy,
+                                                    'balanced_accuracy': balanced_accuracy
+                                                    }
+            print("*-*-*-*-*-DT Classificiation Results TEST (" + test_event + ")-*-*-*-*-*-*-*-*")
+            print(c_test)
 
 
-def train_and_evaluate_gbc(X_train, X_test, y_train, y_test, params):
-    gbc = GradientBoostingClassifier(n_estimators=250)
+            mlp = MLPClassifier(hidden_layer_sizes=(16,), max_iter=1200)
+            mlp.fit(level2_train_X, level2_train_y)
+            level2_pred_test = mlp.predict(level2_test_X)
+            level2_pred_train = mlp.predict(level2_train_X)
 
-    gbc.fit(X_train, y_train)
-    y_predict = gbc.predict(X_test)
-    y_predict_train = gbc.predict(X_train)
-    c_test = classification_report(y_test, y_predict)
-    c_train = classification_report(y_train, y_predict_train)
-    r = recall_score(y_test, y_predict)
-    p = precision_score(y_test, y_predict)
-
-    print("Precision: " + str(p))
-    print("Recall:" + str(r))
-    print("-*-*-*-Classification Report Test -*-*-*-*-")
-    print(c_test)
-    print("-*-*-*-Classification Report Train-*-*-*-*-")
-    print(c_train)
-
-
-def train_and_evaluate_vc(X_train, X_test, y_train, y_test):
-    vc = VotingClassifier(estimators=[
-        ('rfc', RandomForestClassifier(n_estimators=250,
-                                       max_depth=50,
-                                       min_samples_split=5)),
-        ('gbc', GradientBoostingClassifier(n_estimators=250)),
-        ('svc', SVC(gamma='scale'))
-    ])
-
-    vc.fit(X_train, y_train)
-    y_predict = vc.predict(X_test)
-    y_predict_train = vc.predict(X_train)
-    c_test = classification_report(y_test, y_predict)
-    c_train = classification_report(y_train, y_predict_train)
-    r = recall_score(y_test, y_predict)
-    p = precision_score(y_test, y_predict)
-
-    print("Precision: " + str(p))
-    print("Recall:" + str(r))
-    print("-*-*-*-Classification Report Test -*-*-*-*-")
-    print(c_test)
-    print("-*-*-*-Classification Report Train-*-*-*-*-")
-    print(c_train)
+            c_test = classification_report(level2_test_y, level2_pred_test)
+            precision = precision_score(level2_test_y, level2_pred_test)
+            recall = recall_score(level2_test_y, level2_pred_test)
+            f1 = 2 * precision * recall / (precision + recall)
+            accuracy = accuracy_score(level2_test_y, level2_pred_test)
+            balanced_accuracy = balanced_accuracy_score(level2_test_y, level2_pred_test)
+            results[test_event]['MLP'] = {'precision': precision, 'recall': recall, 'F1': f1,
+                                          'accuracy': accuracy,
+                                          'balanced_accuracy': balanced_accuracy
+                                          }
+            print("*-*-*-*-*-MLP Classificiation Results TEST (" + test_event + ")-*-*-*-*-*-*-*-*")
+            print(c_test)
 
 
-X, y, all_data = get_train_test_set(dataset)
+            svc = SVC(C = 10.0)
+            svc.fit(level2_train_X, level2_train_y)
+            level2_pred_test = svc.predict(level2_test_X)
+            level2_pred_train = svc.predict(level2_train_X)
 
-X_eleminated, y, scores = eleminate_features(X, y, 15)
+            c_test = classification_report(level2_test_y, level2_pred_test)
+            precision = precision_score(level2_test_y, level2_pred_test)
+            recall = recall_score(level2_test_y, level2_pred_test)
+            f1 = 2 * precision * recall / (precision + recall)
+            accuracy = accuracy_score(level2_test_y, level2_pred_test)
+            balanced_accuracy = balanced_accuracy_score(level2_test_y, level2_pred_test)
+            results[test_event]['SVM'] = {'precision': precision, 'recall': recall, 'F1': f1,
+                                          'accuracy': accuracy,
+                                          'balanced_accuracy': balanced_accuracy
+                                          }
+            print("*-*-*-*-*-SVM Classificiation Results TEST (" + test_event + ")-*-*-*-*-*-*-*-*")
+            print(c_test)
 
-X_train, X_test, y_train, y_test = train_test_split(X_eleminated, y, test_size=0.2)
+            rf = RandomForestClassifier(n_estimators=150, max_depth=10)
+            rf.fit(level2_train_X, level2_train_y)
+            level2_pred_test = rf.predict(level2_test_X)
+            level2_pred_train = rf.predict(level2_train_X)
 
-params = parameter_selection(X_train, y_train)
-print("Found parameters: " + str(params))
+            c_test = classification_report(level2_test_y, level2_pred_test)
+            precision = precision_score(level2_test_y, level2_pred_test)
+            recall = recall_score(level2_test_y, level2_pred_test)
+            f1 = 2 * precision * recall / (precision + recall)
+            accuracy = accuracy_score(level2_test_y, level2_pred_test)
+            balanced_accuracy = balanced_accuracy_score(level2_test_y, level2_pred_test)
+            results[test_event]['RF'] = {'precision': precision, 'recall': recall, 'F1': f1,
+                                         'accuracy': accuracy,
+                                         'balanced_accuracy': balanced_accuracy
+                                         }
+            print("*-*-*-*-*-RF Classificiation Results TEST (" + test_event + ")-*-*-*-*-*-*-*-*")
+            print(c_test)
 
-train_and_evaluate_rfc(X_train, X_test, y_train, y_test, params)
-# train_and_evaluate_rfc(X_train, X_test, y_train, y_test, None)
+            km = KMeans(n_clusters=2)
+            km.fit(level2_train_X, level2_train_y)
+            level2_pred_test = km.predict(level2_test_X)
+            level2_pred_train = km.predict(level2_train_X)
+
+            c_test = classification_report(level2_test_y, level2_pred_test)
+            precision = precision_score(level2_test_y, level2_pred_test)
+            recall = recall_score(level2_test_y, level2_pred_test)
+            accuracy = accuracy_score(level2_test_y, level2_pred_test)
+            balanced_accuracy = balanced_accuracy_score(level2_test_y, level2_pred_test)
+            f1 = 2 * precision * recall / (precision + recall)
+            results[test_event]['KMeans'] = {'precision': precision, 'recall': recall, 'F1': f1,
+                                             'accuracy': accuracy,
+                                             'balanced_accuracy': balanced_accuracy
+                                             }
+            print("*-*-*-*-*-Kmeans Classificiation Results TEST (" + test_event + ")-*-*-*-*-*-*-*-*")
+            print(c_test)
+
+        return results
+
+
+c = RumorClassifier()
+results = c.train_and_evaluate()
+
+
+print(json.dumps(results, indent=2))
+
+
+print("Bitti")
+

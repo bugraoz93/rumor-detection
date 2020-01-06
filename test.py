@@ -1,21 +1,27 @@
 from PhemeDataset import PhemeDatasetES
 
-dataset = PhemeDatasetES(hosts="http://localhost:9200", index_name="twitter")
+dataset = PhemeDatasetES(hosts="http://localhost:9200", index_name="pheme_tweet_data")
 
-dataset.write_combined_features_to_file()
 events = ["charliehebdo", "germanwings-crash", "sydneysiege", "ottawashooting", "ferguson"]
 rumor = dict()
 non_rumor = dict()
 for event in events:
-    rumor_ct = 0
-    non_rumor_ct = 0
+    rumor_avg_timespan = 0
+    rumor_count = 0
+    non_rumor_avg_timespan = 0
+    non_rumor_count = 0
     a = dataset.read_combined_features_from_file(event)
-    for i in a:
-        if i["rumor"]:
-            rumor_ct += 1
+    for t in a:
+        if t['rumor'] == 0:
+            non_rumor_avg_timespan += t['time_span']
+            non_rumor_count += 1
         else:
-            non_rumor_ct += 1
-    rumor[event] = rumor_ct
-    non_rumor[event] = non_rumor_ct
-print(rumor)
-print(non_rumor)
+            rumor_avg_timespan += t['time_span']
+            rumor_count += 1
+
+    print("EVENT: " + str(event))
+    print("AVG TIMESPAN RUMOR: " + str(rumor_avg_timespan / rumor_count))
+    print("AVG TIMESPAN NON-RUMOR: " + str(non_rumor_avg_timespan / non_rumor_count))
+
+
+
